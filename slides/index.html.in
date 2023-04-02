@@ -1,10 +1,11 @@
+<!-- -*- text -*- -->
 <!doctype html>
 <html lang="en">
     <head>
         <meta charset="utf-8">
         <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
         
-        <title>reveal.js</title>
+        <title>Unicode in the C++ Standard</title>
         
         <link rel="stylesheet" href="reveal.js/dist/reset.css">
         <link rel="stylesheet" href="reveal.js/dist/reveal.css">
@@ -20,10 +21,199 @@
                      data-separator="^====+$"
                      data-separator-vertical="^----+$"
                      data-notes="^Note:">
-            <script type="text/template">
-<!-- Comment to fix emacs indentation-->
+              <script type="text/template">
 ## Applying the Lessons of `std::ranges` to Unicode in the Standard Library
 ### Zach Laine
+
+----
+
+### Why Unicode?
+
+----
+
+C and C++ are the only major production languages in the world without
+first-class support for Unicode in their standard libraries.
+
+Unicode support is essential for anyone that wants to support multiple
+languages, some of which they may know nothing about.
+<!-- .element: class="fragment" -->
+
+Ask any English speaker to try capitalizing modern Greek without help.
+<!-- .element: class="fragment" -->
+
+----
+
+### Some Terminology
+
+----
+
+A code point is a Unicode "character".  This may be a letter, number,
+ideogram, or a combining mark like an accent.
+
+A code unit is a unit of work, usually in one of the UTF encodings.  For
+instance, a `char` might be a UTF-8 code unit, and a `wchar_t` on MSVC may be
+a UTF-16 code unit.  Multiple code units encode a code point.
+<!-- .element: class="fragment" -->
+
+An extended grapheme cluster ("grapheme") is what the end-user sees as a
+single symbol.  This might be a letter, a letter with an accent, a number, an
+ideogram, an emoji, etc.
+<!-- .element: class="fragment" -->
+
+----
+
+The industry standard for Unicode in C and C++ is, and has been for years, ICU.
+
+----
+
+ICU has no support for generic programming.  It uses fixed types for code
+units and strings.
+
+If you have a different string type in your code, including `std::string`, you
+must make a copy to use the ICU string APIs.
+<!-- .element: class="fragment" -->
+
+----
+
+Lack of generic programming support is directly at odds with the way the C++
+standard library works.
+
+----
+
+<!-- See https://github.com/unicode-org/icu/blob/main/icu4c/source/samples/ustring/ustring.cpp#L300 -->
+
+From the ICU samples:
+
+```c++
+static const char16_t input[] = /*...*/;
+char16_t buffer[32];
+
+UErrorCode errorCode = U_ZERO_ERROR;
+int32_t length =
+    u_strToLower(buffer, UPRV_LENGTHOF(buffer), input, -1,
+                 "en", &errorCode);
+if (U_SUCCESS(errorCode)) {
+    // Use it.
+} else {
+    // Report error.
+}
+```
+
+----
+
+What we might standardize:
+
+```c++
+std::string text = "ijssel";
+
+my_string lower;
+std::uc::to_lower(text, std::inserter(lower, lower.end()));
+assert(lower == my_string("Ijssel"));
+```
+
+This is C++ standard-style generic -- iterator-based and range-friendly.
+<!-- .element: class="fragment" -->
+
+----
+
+### Design Considerations
+
+----
+
+Iterators are important. We should support generic programming, whether it is
+done in terms of pointers, a particular iterator, or an iterator type
+specified as a template parameter.
+
+Ranges are also important. We should have range-friendly ways of doing
+transcoding. This includes support for sentinels and lazy views.
+<!-- .element: class="fragment" -->
+
+----
+
+A null-terminated string should not be treated as a special case. The ubiquity
+of such strings means that they should be treated as first-class strings.
+
+```c++
+char const * text = "text";
+auto utf16 = std::uc::as_utf16(text);
+
+// Not:
+// std::uc::as_utf16(
+//   std::uc::utf8_view{text, std::uc::null_terminator});
+```
+
+----
+
+Transcoding cannot be a black box; sometimes you need to be able to find where
+there is a break in the encoding, or to detect whether a sequence has any
+broken encodings in it. We should provide utility functions that let users
+investigate these states.
+
+----
+
+It is common to want to view the same text as code points and code units at
+different times. It is therefore important that Unicode-aware iterators have a
+convenient way to access the underlying sequence of code units being
+transcoded.
+
+```c++
+auto grs = std::uc::as_graphemes("text");
+
+auto grs_first =         grs.begin();
+auto grs_last =          grs.end();
+auto code_points_first = grs.begin().base();
+auto code_points_last =  grs.end().base();
+auto code_units_first =  grs.begin().base().base();
+auto code_units_last =   grs.end().base().base();
+```
+
+----
+
+If there’s a specific algorithm specialization that operates directly on UTF-8
+or UTF-16, the top-level algorithm should use that when appropriate. This is
+analogous to having multiple implementations of the algorithms in std that
+differ based on iterator category.
+
+----
+
+Input may come from UTF-8, UTF-16, or UTF-32 strings (though UTF-32 is
+extremely uncommon in practice). There should be a single overload of each
+normalization function, so that the user does not need to change code when the
+input is changed from UTF-N to UTF-M. The most optimal version of the
+algorithm (processing either UTF-8 or UTF-16) will be selected (as mentioned
+just previously).
+
+
+```c++
+std::string text = "ijssel";
+
+my_string lower;
+std::uc::to_lower(text, std::inserter(lower, lower.end()));
+assert(lower == my_string("Ijssel"));
+```
+<!-- .element: class="fragment" -->
+
+----
+
+UTF-8 is very important. We expect that the vast majority of users will keep
+their text data in UTF-8 the vast majority of the time. It is compact, it is a
+superset of ASCII, and it is in widespread use.
+
+Graphemes are also very important. By having C++ users operate on text using
+graphemes as their unit of work (as opposed to code points or code units),
+they are less likely to mutate text in such a way that reader-perceived text
+appears broken.
+<!-- .element: class="fragment" -->
+
+----
+
+### Design
+
+----
+
+### `std::iterator_interface`
+
+
 
 ----
 
