@@ -213,7 +213,83 @@ appears broken.
 
 ### `std::iterator_interface`
 
+This very useful for reducing the amount of implementation and specification
+time needed to produce iterators and views built from those iterators.
 
+See P2727 and the Boost.STLInterfces CppCon talk for details.
+<!-- .element: class="fragment" -->
+
+----
+
+### Transcoding
+
+I consider the ability to convert among UTF-8 -16 and -32 to be table stakes
+for any Unicode library.  It's not terribly intereseting, but it needs to be
+done well, and to be convenient.
+
+You can track the progress of committee paper P2728 to keep up with this work.
+
+----
+
+### Transcoding views
+
+```c++
+wchar_t const * utf16_text = /* ... */;
+
+for (auto code_unit: utf16_text | std::uc::as_utf8) {
+    // Use code_unit ...
+}
+```
+
+```c++
+for (auto code_point: utf16_text | std::uc::as_utf32) {
+    // Use code_point ...
+}
+```
+<!-- .element: class="fragment" -->
+
+This is an example of a null-terminated string being treated as a range.
+<!-- .element: class="fragment" -->
+
+The loops would work the same if `utf16_text` were a `std::wstring`.
+<!-- .element: class="fragment" -->
+
+----
+
+Views are easy to use and lazy.  They also compose nicely with the other `std`
+views.
+
+However, they do leave substantial performance on the table (2-3x, depending
+on whether you use SIMD).  Even so, SG-16 has voted to remove the algorithms
+from P2728, leaving only the views, reasoning that most strings will be short
+enough that perf is not a first-order concern.
+<!-- .element: class="fragment" -->
+
+----
+
+As with most `std` views, all the interesting work is done in the iterators.
+Those are also available for direct use.
+
+```c++
+uint32_t const utf32[] = { ... };
+char const utf8[] = { ... };
+int i = 0;
+for (auto it = std::uc::utf32_iterator(
+              utf8, utf8, std::end(utf8)),
+          end = std::uc::utf32_iterator(
+              utf8, std::end(utf8), std::end(utf8));
+     it != end; ++it) {
+    assert(*it == utf32[i++]);
+}
+```
+
+----
+
+Each trancoding iterator contains three iterators (or two iterators and a
+sentinel).
+
+This is not about memory safety, but about correctness.
+<!-- .element: class="fragment" -->
 
 ----
 
