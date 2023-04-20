@@ -640,7 +640,7 @@ std::string const mem_order =
 "مرحبا ، عالم ثنائي الاتجاه"
 */
 for (auto range : mem_order |
-     boost::text::bidirectional_subranges) {
+     std::uc::bidirectional_subranges) {
     for (auto grapheme : range) {
         std::cout << grapheme;
     }
