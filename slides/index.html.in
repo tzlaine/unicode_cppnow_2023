@@ -405,14 +405,47 @@ Casual users of Unicode can ignore these.
 
 ----
 
-TODO
-TODO
-TODO
-TODO
-TODO
-TODO
-TODO
-TODO
+```c++
+auto nfc_view =
+    "sen\u0303ra" | std::uc::normalized<std::uc::nf::c>;
+std::u32string nfc_value = U"señora";
+assert(std::ranges::equal(nfc_view, nfc_value));
+```
+
+----
+
+Insertion and erasure into a normalized string breaks normalization in the
+general case.  Consider:
+
+```c++
+std::string s = "senor";  // In NFC.
+s.insert(3, '\u0303');    // Suddenly not in NFC.
+```
+
+----
+
+The details of doing insert, erase, and replace operations while preserving
+normalization are easy to get wrong.  Three functions can fix this problem,
+`normalize_erase`, `normalize_insert`, and `normalize_replace`.
+
+----
+
+```c++
+uint16_t const nfc_a_cedilla_ring_above[] = {
+    0x0041 /*A*/, 0x00b8 /*cedilla*/, 0x030A /*ring above*/
+};
+
+std::vector<uint16_t> str(
+    std::begin(nfc_a_cedilla_ring_above),
+    std::end(nfc_a_cedilla_ring_above));
+std::vector<uint16_t> const ins(
+    {0x0044 /*D*/, 0x0307 /*dot above*/});
+auto const result =
+    std::uc::normalize_replace<std::uc::nf::c>(
+        str, str.begin(), str.end(), ins.begin(), ins.end());
+assert(
+    str == std::vector<uint16_t>({0x1e0a /*D+dot above*/}));
+```
 
 ----
 
@@ -641,9 +674,7 @@ std::string const mem_order =
 */
 for (auto range : mem_order |
      std::uc::bidirectional_subranges) {
-    for (auto grapheme : range) {
-        std::cout << grapheme;
-    }
+    std::cout << range;
 }
 ```
 
