@@ -451,6 +451,56 @@ assert(
 
 ----
 
+### Transcoding in Views
+
+All the views presented take any UTF as input (8, 16, or 32).  They each
+transcode to UTF-32, if needed, before doing their work.
+
+Each view looks at the range being given to it, and if it looks like it could
+be some UTF, the code is well-formed.
+<!-- .element: class="fragment" -->
+
+----
+
+Windows APIs use `wchar_t` for UTF-16.
+
+ICU uses `char`, `char16_t` and `int` for UTF-8, -16, and -32, respectively.
+<!-- .element: class="fragment" -->
+
+Users in all non-Windows, non-EBCDIC contexts can usually use whatever
+character-type they want for UTF-8 (and mostly use `char`).
+<!-- .element: class="fragment" -->
+
+`char8_t`, `char16_t`, and `char32_t` are intended for use where the user
+wants to explicitly claim that the encoding is UTF-8, -16, or -32,
+respectively.
+<!-- .element: class="fragment" -->
+
+----
+
+In order to maximize interoperability with all those use cases, I'm proposing
+that the UTF-N concept is `is_integral_v<T>` and `T` is N bits.
+
+SG-16 hates this, and wants the concept to be `same_as<charN_t>`.
+
+----
+
+With the SG-16 way of doing things, you'd need to add some kind of adaptor
+that indicates that the incoming range is actually UTF-N.
+
+```c++
+std::u8string u8str = /* ... */;
+// No adaptor needed.
+auto u8str_code_points = u8str | std::uc::as_utf32;
+
+std::string str(u8str.begin(), u8str.end());
+// Adaptor needed.
+auto str_code_points =
+    str | std::uc::utf8_for_realsies | std::uc::as_utf32;
+```
+
+----
+
 ### Text Segmentation
 
 Unicode has algorithms for breaking on graphemes, words, lines, and sentences.
