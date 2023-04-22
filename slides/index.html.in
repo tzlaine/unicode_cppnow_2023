@@ -104,11 +104,11 @@ if (U_SUCCESS(errorCode)) {
 What we might standardize:
 
 ```c++
-std::string text = "ijssel";
+std::string text = "YELLING";
 
 my_string lower;
 std::uc::to_lower(text, std::inserter(lower, lower.end()));
-assert(lower == my_string("Ijssel"));
+assert(lower == my_string("yelling"));
 ```
 
 This is C++ standard-style generic -- iterator-based and range-friendly.
@@ -144,7 +144,7 @@ auto utf16 = std::uc::as_utf16(text);
 
 // Not:
 // std::uc::as_utf16(
-//   std::uc::utf8_view{text, std::uc::null_terminator});
+//   std::ranges::subrange{text, std::uc::null_sentinel});
 ```
 
 ----
@@ -190,11 +190,11 @@ just previously).
 
 
 ```c++
-std::string text = "ijssel";
+std::string text = "YELLING";
 
 my_string lower;
 std::uc::to_lower(text, std::inserter(lower, lower.end()));
-assert(lower == my_string("Ijssel"));
+assert(lower == my_string("yelling"));
 ```
 <!-- .element: class="fragment" -->
 
@@ -365,7 +365,7 @@ using iter_t =
   utf_32_to_16_iterator<utf_8_to_32_iterator<char const *>>;
 ```
 
-The unpacked result will be a UTF-8 `char const *` iterator.
+An unpacked `iter_t` will be a UTF-8 `char const *` iterator.
 <!-- .element: class="fragment" -->
 
 ----
@@ -392,6 +392,8 @@ equal.
 
 To get all your strings in the same form so that they can be binary-compared,
 you must normalize.
+
+You can track the progress of committee paper P2729 to keep up with this work.
 
 ----
 
@@ -452,6 +454,8 @@ assert(
 ### Text Segmentation
 
 Unicode has algorithms for breaking on graphemes, words, lines, and sentences.
+
+You can track the progress of committee paper P2745 to keep up with this work.
 
 ----
 
