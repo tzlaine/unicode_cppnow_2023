@@ -140,11 +140,11 @@ of such strings means that they should be treated as first-class strings.
 
 ```c++
 char const * text = "text";
-auto utf16 = std::uc::as_utf16(text);
+auto utf16 = text | std::uc::as_utf16;
 
 // Not:
-// std::uc::as_utf16(
-//   std::ranges::subrange{text, std::uc::null_sentinel});
+// std::ranges::subrange{text, std::uc::null_sentinel} |
+//    std::uc::as_utf16;
 ```
 
 ----
@@ -162,7 +162,7 @@ convenient way to access the underlying sequence of code units being
 transcoded.
 
 ```c++
-auto grs = std::uc::as_graphemes("text");
+auto grs = "text" | std::uc::as_graphemes;
 
 auto grs_first =         grs.begin();
 auto grs_last =          grs.end();
@@ -371,7 +371,7 @@ An unpacked `iter_t` will be a UTF-8 `char const *` iterator.
 ----
 
 Unpacking is done by a function called `unpack_iterator_and_sentinel()`.  This
-is likely to become a customization point.
+is a customization point.
 
 ----
 
@@ -558,7 +558,7 @@ code points.  First, the default behavior:
 std::string cps("out-of-the-box");
 
 // Prints "out|-|of|-|the|-|box|".
-for (auto range: std::uc::words(cps)) {
+for (auto range: cps | std::uc::words) {
     std::cout << range << "|";
 }
 std::cout << "\n";
@@ -592,7 +592,7 @@ default behavior:
 std::string cps("snake_case camelCase");
 
 // Prints "snake_case| |camelCase|".
-for (auto range: std::uc::words(cps)) {
+for (auto range: cps | std::uc::words) {
     std::cout << range << "|";
 }
 std::cout << "\n";
