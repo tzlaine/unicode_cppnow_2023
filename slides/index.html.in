@@ -143,7 +143,7 @@ char const * text = "text";
 auto utf16 = text | std::uc::as_utf16;
 
 // Not:
-// std::ranges::subrange{text, std::uc::null_sentinel} |
+// std::ranges::subrange{text, std::null_sentinel} |
 //    std::uc::as_utf16;
 ```
 
@@ -229,13 +229,13 @@ See P2727 and the Boost.STLInterfces CppCon talk for details.
 ### `null_sentinel`
 
 ```c++
-namespace std::uc {
+namespace std {
   struct null_sentinel_t {
     constexpr null_sentinel_t base() const { return {}; }
 
     template<class T>
-      requires utf_code_unit<T>
-    friend constexpr bool operator==(T* p, null_sentinel_t);
+      friend constexpr bool operator==(T* p, null_sentinel_t)
+        { return *p == T{}; }
   };
 
   inline constexpr null_sentinel_t null_sentinel;
@@ -353,7 +353,7 @@ auto r = "some text" |
 ```
 
 `r` is morally equivalent to
-`std::ranges::subrange{"some text", std::uc::null_sentinel}`.
+`std::ranges::subrange{"some text", std::null_sentinel}`.
 <!-- .element: class="fragment" -->
 
 ----
@@ -409,7 +409,7 @@ Casual users of Unicode can ignore these.
 
 ```c++
 auto nfc_view =
-    "sen\u0303ra" | std::uc::normalized<std::uc::nf::c>;
+    "sen\u0303ra" | std::uc::normalize<std::uc::nf::c>;
 std::u32string nfc_value = U"señora";
 assert(std::ranges::equal(nfc_view, nfc_value));
 ```
