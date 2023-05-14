@@ -1,0 +1,764 @@
+<!-- -*- text -*- -->
+<!doctype html>
+<html lang="en">
+    <head>
+        <meta charset="utf-8">
+        <meta name="viewport" content="width=device-width, initial-scale=1.0, maximum-scale=1.0, user-scalable=no">
+        
+        <title>Unicode in the C++ Standard</title>
+        
+        <link rel="stylesheet" href="reveal.js/dist/reset.css">
+        <link rel="stylesheet" href="reveal.js/dist/reveal.css">
+        <link rel="stylesheet" href="reveal.js/dist/theme/black.css">
+        
+        <!-- Theme used for syntax highlighted code -->
+        <link rel="stylesheet" href="reveal.js/plugin/highlight/monokai.css">
+    </head>
+    <body>
+        <div class="reveal">
+        <div class="slides">
+            <section data-markdown=""
+                     data-separator="^====+$"
+                     data-separator-vertical="^----+$"
+                     data-notes="^Note:">
+              <script type="text/template">
+## Applying the Lessons of `std::ranges` to Unicode in the Standard Library
+### Zach Laine
+
+----
+
+### Why Unicode?
+
+----
+
+C and C++ are the only major production languages in the world without
+first-class support for Unicode in their standard libraries.
+
+Unicode support is essential for anyone that wants to support multiple
+languages, some of which they may know nothing about.
+<!-- .element: class="fragment" -->
+
+Ask any English speaker to try capitalizing modern Greek without help.
+<!-- .element: class="fragment" -->
+
+----
+
+### Some Terminology
+
+----
+
+A code point is a Unicode "character".  This may be a letter, number,
+ideogram, or a combining mark like an accent.
+
+A code unit is a unit of work, usually in one of the UTF encodings.  For
+instance, a `char` might be a UTF-8 code unit, and a `wchar_t` on MSVC may be
+a UTF-16 code unit.  Multiple code units encode a code point.
+<!-- .element: class="fragment" -->
+
+An extended grapheme cluster ("grapheme") is what the end-user sees as a
+single symbol.  This might be a letter, a letter with an accent, a number, an
+ideogram, an emoji, etc.
+<!-- .element: class="fragment" -->
+
+----
+
+The industry standard for Unicode in C and C++ is, and has been for years, ICU.
+
+----
+
+ICU has no support for generic programming.  It uses fixed types for code
+units and strings.
+
+If you have a different string type in your code, including `std::string`, you
+must make a copy to use the ICU string APIs.
+<!-- .element: class="fragment" -->
+
+----
+
+Lack of generic programming support is directly at odds with the way the C++
+standard library works.
+
+----
+
+<!-- See https://github.com/unicode-org/icu/blob/main/icu4c/source/samples/ustring/ustring.cpp#L300 -->
+
+From the ICU samples:
+
+```c++
+static const char16_t input[] = /*...*/;
+char16_t buffer[32];
+
+UErrorCode errorCode = U_ZERO_ERROR;
+int32_t length =
+    u_strToLower(buffer, UPRV_LENGTHOF(buffer), input, -1,
+                 "en", &errorCode);
+if (U_SUCCESS(errorCode)) {
+    // Use it.
+} else {
+    // Report error.
+}
+```
+
+----
+
+What we might standardize:
+
+```c++
+std::string text = "YELLING";
+
+my_string lower;
+std::uc::to_lower(text, std::inserter(lower, lower.end()));
+assert(lower == my_string("yelling"));
+```
+
+This is C++ standard-style generic -- iterator-based and range-friendly.
+<!-- .element: class="fragment" -->
+
+----
+
+### Design Considerations
+
+----
+
+A major design goal is to make casual/naive uses of Unicode easy for
+non-Unicode-expert C++ users.
+
+----
+
+Iterators are important. We should support generic programming, whether it is
+done in terms of pointers, a particular iterator, or an iterator type
+specified as a template parameter.
+
+Ranges are also important. We should have range-friendly ways of doing
+transcoding. This includes support for sentinels and lazy views.
+<!-- .element: class="fragment" -->
+
+----
+
+A null-terminated string should not be treated as a special case. The ubiquity
+of such strings means that they should be treated as first-class strings.
+
+```c++
+char const * text = "text";
+auto utf16 = text | std::uc::as_utf16;
+
+// Not:
+// std::ranges::subrange{text, std::null_sentinel} |
+//    std::uc::as_utf16;
+```
+
+----
+
+Transcoding cannot be a black box; sometimes you need to be able to find where
+there is a break in the encoding, or to detect whether a sequence has any
+broken encodings in it. We should provide utility functions that let users
+investigate these states.
+
+----
+
+It is common to want to view the same text as code points and code units at
+different times. It is therefore important that Unicode-aware iterators have a
+convenient way to access the underlying sequence of code units being
+transcoded.
+
+```c++
+auto grs = "text" | std::uc::as_graphemes;
+
+auto grs_first =         grs.begin();
+auto grs_last =          grs.end();
+auto code_points_first = grs.begin().base();
+auto code_points_last =  grs.end().base();
+auto code_units_first =  grs.begin().base().base();
+auto code_units_last =   grs.end().base().base();
+```
+
+----
+
+If there’s a specific algorithm specialization that operates directly on UTF-8
+or UTF-16, the top-level algorithm should use that when appropriate. This is
+analogous to having multiple implementations of the algorithms in std that
+differ based on iterator category.
+
+----
+
+Input may come from UTF-8, UTF-16, or UTF-32 strings (though UTF-32 is
+extremely uncommon in practice). There should be a single overload of each
+normalization function, so that the user does not need to change code when the
+input is changed from UTF-N to UTF-M. The most optimal version of the
+algorithm (processing either UTF-8 or UTF-16) will be selected (as mentioned
+just previously).
+
+
+```c++
+std::string text = "YELLING";
+
+my_string lower;
+std::uc::to_lower(text, std::inserter(lower, lower.end()));
+assert(lower == my_string("yelling"));
+```
+<!-- .element: class="fragment" -->
+
+----
+
+UTF-8 is very important. We expect that the vast majority of users will keep
+their text data in UTF-8 the vast majority of the time. It is compact, it is a
+superset of ASCII, and it is in widespread use.
+
+Graphemes are also very important. By having C++ users operate on text using
+graphemes as their unit of work (as opposed to code points or code units),
+they are less likely to mutate text in such a way that reader-perceived text
+appears broken.
+<!-- .element: class="fragment" -->
+
+----
+
+### Design
+
+----
+
+### `std::iterator_interface`
+
+This very useful for reducing the amount of implementation and specification
+time needed to produce iterators and views built from those iterators.
+
+See P2727 and the Boost.STLInterfces CppCon talk for details.
+<!-- .element: class="fragment" -->
+
+----
+
+### `null_sentinel`
+
+```c++
+namespace std {
+  struct null_sentinel_t {
+    constexpr null_sentinel_t base() const { return {}; }
+
+    template<class T>
+      friend constexpr bool operator==(T* p, null_sentinel_t)
+        { return *p == T{}; }
+  };
+
+  inline constexpr null_sentinel_t null_sentinel;
+}
+```
+
+----
+
+### Transcoding
+
+I consider the ability to convert among UTF-8 -16 and -32 to be table stakes
+for any Unicode library.  It's not terribly intereseting, but it needs to be
+done well, and to be convenient.
+
+You can track the progress of committee paper P2728 to keep up with this work.
+
+----
+
+### Transcoding views
+
+```c++
+wchar_t const * utf16_text = /* ... */;
+
+for (auto code_unit: utf16_text | std::uc::as_utf8) {
+    // Use code_unit ...
+}
+```
+
+```c++
+for (auto code_point: utf16_text | std::uc::as_utf32) {
+    // Use code_point ...
+}
+```
+<!-- .element: class="fragment" -->
+
+This is an example of a null-terminated string being treated as a range.
+<!-- .element: class="fragment" -->
+
+The loops would work the same if `utf16_text` were a `std::wstring`.
+<!-- .element: class="fragment" -->
+
+----
+
+Views are easy to use and lazy.  They also compose nicely with the other `std`
+views.
+
+However, they do leave substantial performance on the table (2-3x, depending
+on whether you use SIMD).  Even so, SG-16 has voted to remove the algorithms
+from P2728, leaving only the views, reasoning that most strings will be short
+enough that perf is not a first-order concern.
+<!-- .element: class="fragment" -->
+
+----
+
+As with most `std` views, all the interesting work is done in the iterators.
+Those are also available for direct use.
+
+```c++
+uint32_t const utf32[] = { ... };
+char const utf8[] = { ... };
+int i = 0;
+for (auto it = std::uc::utf32_iterator(
+              utf8, utf8, std::end(utf8)),
+          end = std::uc::utf32_iterator(
+              utf8, std::end(utf8), std::end(utf8));
+     it != end; ++it) {
+    assert(*it == utf32[i++]);
+}
+```
+
+----
+
+Each transcoding iterator produces the Unicode replacement character when it
+encounters an ill-formed sequence of code units.
+
+You can pass any of the proposed transcoding iterators any old garbage, and
+they will produce a sequence of code units for the parts of the input that are
+well-formed UTF, and replacement characters everywhere else.
+<!-- .element: class="fragment" -->
+
+----
+
+Each trancoding iterator contains three iterators (or two iterators and a
+sentinel).  The first contained iterator indicates the beginning of the
+underlying range being transcoded; the second indicates the current position
+within the underlying range; the third (or the sentinel) indicates the end of
+the underlying range.
+
+For example, `utf_8_to_32_iterator<char const *>` contains three `char const
+*` data members.
+<!-- .element: class="fragment" -->
+
+----
+
+This is not about memory safety, but about correctness.
+
+If you are using a UTF-8 to UTF-32 transcoding iterator, and you read a single
+code point, the transcoding operation needs to read 1-4 code units from the
+underlying range.
+<!-- .element: class="fragment" -->
+
+----
+
+All the proposed transcoding iterators are bidirectional.
+
+This becomes useful later, with the Unicode algorithms.
+
+----
+
+What happens when you do this?
+
+```c++
+auto r = "some text" |
+    std::uc::as_utf32 | std::uc::as_utf16 | std::uc::as_utf8;
+```
+
+`r` is morally equivalent to
+`std::ranges::subrange{"some text", std::null_sentinel}`.
+<!-- .element: class="fragment" -->
+
+----
+
+This is accomplished by doing something I call "unpackaing".  Consider:
+
+```c++
+using iter_t =
+  utf_32_to_16_iterator<utf_8_to_32_iterator<char const *>>;
+```
+
+An unpacked `iter_t` will be a UTF-8 `char const *` iterator.
+<!-- .element: class="fragment" -->
+
+----
+
+Unpacking is done by a function called `unpack_iterator_and_sentinel()`.  This
+is a customization point.
+
+----
+
+### The Unicode Algorithms
+
+----
+
+### Normalization
+
+Unicode specifies that `"n~"` (`'~'` is U+0303 COMBINING TILDE) and `"ñ"`
+(U+00F1 LATIN SMALL LETTER N WITH TILDE) must be treated exactly the same.
+
+----
+
+One of those strings is two code points, and the other is one.  They obviously
+do not compare binary equal.  However, Unicode says that these strings are
+equal.
+
+To get all your strings in the same form so that they can be binary-compared,
+you must normalize.
+
+You can track the progress of committee paper P2729 to keep up with this work.
+
+----
+
+There are two major forms of normalization: decomposed (e.g. `"n~"`) and
+composed (e.g. `"ñ"`).  Decomposed is known as Normalization Form Decomposed
+(NFD) and composed is known as Normalization Form Composed (NFC).
+
+There are also "compatibility" variants of each of these, NFKD and NFKC.
+Casual users of Unicode can ignore these.
+<!-- .element: class="fragment" -->
+
+----
+
+```c++
+auto nfc_view =
+    "sen\u0303ra" | std::uc::normalize<std::uc::nf::c>;
+std::u32string nfc_value = U"señora";
+assert(std::ranges::equal(nfc_view, nfc_value));
+```
+
+----
+
+Insertion and erasure into a normalized string breaks normalization in the
+general case.  Consider:
+
+```c++
+std::string s = "senor";  // In NFC.
+s.insert(3, '\u0303');    // Suddenly not in NFC.
+```
+
+----
+
+The details of doing insert, erase, and replace operations while preserving
+normalization are easy to get wrong.  Three functions can fix this problem,
+`normalize_erase`, `normalize_insert`, and `normalize_replace`.
+
+----
+
+```c++
+uint16_t const nfc_a_cedilla_ring_above[] = {
+    0x0041 /*A*/, 0x00b8 /*cedilla*/, 0x030A /*ring above*/
+};
+
+std::vector<uint16_t> str(
+    std::begin(nfc_a_cedilla_ring_above),
+    std::end(nfc_a_cedilla_ring_above));
+std::vector<uint16_t> const ins(
+    {0x0044 /*D*/, 0x0307 /*dot above*/});
+auto const result =
+    std::uc::normalize_replace<std::uc::nf::c>(
+        str, str.begin(), str.end(), ins.begin(), ins.end());
+assert(
+    str == std::vector<uint16_t>({0x1e0a /*D+dot above*/}));
+```
+
+----
+
+### Transcoding in Views
+
+All the views presented take any UTF as input (8, 16, or 32).  They each
+transcode to UTF-32, if needed, before doing their work.
+
+Each view looks at the range being given to it, and if it looks like it could
+be some UTF, the code is well-formed.
+<!-- .element: class="fragment" -->
+
+----
+
+Windows APIs use `wchar_t` for UTF-16.
+
+ICU uses `char`, `char16_t` and `int` for UTF-8, -16, and -32, respectively.
+<!-- .element: class="fragment" -->
+
+Users in all non-Windows, non-EBCDIC contexts can usually use whatever
+character-type they want for UTF-8 (and mostly use `char`).
+<!-- .element: class="fragment" -->
+
+`char8_t`, `char16_t`, and `char32_t` are intended for use where the user
+wants to explicitly claim that the encoding is UTF-8, -16, or -32,
+respectively.
+<!-- .element: class="fragment" -->
+
+----
+
+In order to maximize interoperability with all those use cases, I'm proposing
+that the UTF-N concept is `is_integral_v<T>` and `T` is N bits.
+
+SG-16 hates this, and wants the concept to be `same_as<charN_t>`.
+
+----
+
+With the SG-16 way of doing things, you'd need to add some kind of adaptor
+that indicates that the incoming range is actually UTF-N.
+
+```c++
+std::u8string u8str = /* ... */;
+// No adaptor needed.
+auto u8str_code_points = u8str | std::uc::as_utf32;
+
+std::string str(u8str.begin(), u8str.end());
+// Adaptor needed.
+auto str_code_points =
+    str | std::uc::utf8_for_realsies | std::uc::as_utf32;
+```
+
+----
+
+### Text Segmentation
+
+Unicode has algorithms for breaking on graphemes, words, lines, and sentences.
+
+You can track the progress of committee paper P2745 to keep up with this work.
+
+----
+
+A grapheme is a sequence of code points that form a user-perceived
+"character".  As a programmer working on text, a lot of the time you will want
+to deal with graphemes, not code points or code units.  You will usually want
+to insert, remove, etc., whole graphemes.
+
+```c++
+std::string text = /* ... */;
+for (auto grapheme: text | std::uc::as_graphemes) {
+    // Use individual grapheme here.  grapheme is a
+    // std::uc::grapheme_view, a range of code points.
+}
+```
+
+----
+
+Word breaking is also available.  If we want to print the second-to-last word
+in some text:
+
+```c++
+std::string str(
+    "The quick brown fox can’t jump 32.3 feet, right?");
+
+// Prints "right".
+int count = 0;
+for (auto word: str | std::uc::words | std::views::reverse) {
+    if (++count == 2)
+        std::print(word);
+}
+```
+
+----
+
+Word breaking is very application-sensitive.  If I look at where words are
+broken in my favorite editor versus my favorite shell, the results are very
+different.
+
+To accomodate different situations, word breaking can be "tailored".
+
+There are two ways of doing this.
+
+----
+
+First, you can customize which word-properties are associated with specific
+code points.  First, the default behavior:
+
+```c++
+std::string cps("out-of-the-box");
+
+// Prints "out|-|of|-|the|-|box|".
+for (auto range: cps | std::uc::words) {
+    std::cout << range << "|";
+}
+std::cout << "\n";
+```
+
+----
+
+Tailoring that treats `'-'` as a middle-of-word letter:
+
+```c++
+auto const custom_word_prop = [](uint32_t cp) {
+    if (cp == '-')
+        return std::uc::word_property::MidLetter;
+    return std::uc::word_prop(cp);
+};
+
+// Prints "out-of-the-box|".
+for (auto range: cps | std::uc::words(custom_word_prop)) {
+    std::cout << range << "|";
+}
+std::cout << "\n";
+```
+
+----
+
+Second, you can provide a predicate that takes a large amount of context, and
+returns `true` if there should be a break at that position.  First, the
+default behavior:
+
+```c++
+std::string cps("snake_case camelCase");
+
+// Prints "snake_case| |camelCase|".
+for (auto range: cps | std::uc::words) {
+    std::cout << range << "|";
+}
+std::cout << "\n";
+```
+
+----
+
+```c++
+// Break up words into chunks as if they were parts of
+// identifiers in a popular programming language.
+auto const my_break = [](auto prev_prev, auto prev,
+                         auto curr,
+                         auto next, auto next_next) {
+    if ((prev == '_') != (curr == '_'))
+        return true;
+    if (0x61 <= prev && prev <= 0x7a &&
+        0x41 <= curr && curr <= 0x5a) {
+        return true;
+    }
+    return false;
+};
+```
+
+----
+
+```c++
+// Prints "snake|_|case| |camel|Case|".
+for (auto range:
+     cps | std::uc::words(std::uc::word_prop, my_break)) {
+    std::cout << range << "|";
+}
+std::cout << "\n";
+```
+
+----
+
+You can also break up text based on sentence boundaries.  If we want to print
+the third sentence in some text:
+
+```c++
+int count = 0;
+for (auto sentence: some_text | std::uc::sentences) {
+    if (++count == 3)
+        std::print(sentence);
+}
+```
+
+----
+
+There is also support for line breaking.  If we want to print the third line
+in some text, where lines are delimited by newlines:
+
+```c++
+int count = 0;
+for (auto line: some_text | std::uc::lines) {
+    if (++count == 3)
+        std::print(line);
+}
+```
+
+----
+
+Sometimes you need to print a line, breaking the line off where there is
+either a newline, or at the last word that fits in some available space.
+That's supported, too:
+
+```c++
+for (auto line: str | std::uc::lines(
+         60,
+         [](auto first, auto last) -> std::ptrdiff_t {
+             return std::uc::estimated_width(first, last);
+         })) {
+    std::cout << line;
+    if (!line.hard_break())
+        std::cout << "\n";
+}
+```
+
+This is a forward range, not a bidirectional range.
+
+----
+
+Case-mapping functions are also provided:
+
+```c++
+std::string str = /* ... */;
+auto uppercased = str | std::uc::to_upper;
+auto lowercased = str | std::uc::to_lower;
+auto titlecased = str | std::uc::to_title;
+
+bool const upper = std::uc::is_upper(str);
+bool const lower = std::uc::is_lower(str);
+bool const title = std::uc::is_title(str);
+```
+
+----
+
+To make those views produce UTF-8:
+
+```c++
+std::string str = /* ... */;
+auto uppercased = str | std::uc::to_upper | std::uc::as_utf8;
+auto lowercased = str | std::uc::to_lower | std::uc::as_utf8;
+auto titlecased = str | std::uc::to_title | std::uc::as_utf8;
+```
+
+----
+
+There is also the Unicode Bidirectional Algorithm.
+
+Consider a little bit of Arabic text:
+
+```c++
+std::string const RTL_order_arabic =
+    "مرحبا ، عالم ثنائي الاتجاه";
+```
+
+This is the translation of `"Hello, bidirectional world"` that Google
+Translate produces.  It's in proper Arabic right-to-left order as it appears
+above.
+
+----
+
+```c++
+std::string const mem_order =
+    (char const *)
+    u8"\"Hello, bidirectional world\"\n"
+    u8"\"هاجتالا يئانث ملاع ، ابحرم\"";
+
+/* Prints:
+"Hello, bidirectional world"
+"مرحبا ، عالم ثنائي الاتجاه"
+*/
+for (auto range : mem_order |
+     std::uc::bidirectional_subranges) {
+    std::cout << range;
+}
+```
+
+----
+
+## Questions?
+
+<span class="fragment fade-in">
+https://github.com/tzlaine/text <br>
+</span>
+
+            </script>
+            </section>
+        </div>
+    </div>
+
+    <script src="reveal.js/dist/reveal.js"></script>
+    <script src="reveal.js/plugin/notes/notes.js"></script>
+    <script src="reveal.js/plugin/markdown/markdown.js"></script>
+    <script src="reveal.js/plugin/highlight/highlight.js"></script>
+    <script>
+        // More info about initialization & config:
+        // - https://revealjs.com/initialization/
+        // - https://revealjs.com/config/
+        Reveal.initialize({
+            slideNumber: "c/t",
+            hash: true,
+            // Learn about plugins: https://revealjs.com/plugins/
+            plugins: [ RevealMarkdown, RevealHighlight, RevealNotes ]
+        });
+    </script>
+    </body>
+</html>
